@@ -1,0 +1,381 @@
+/*
+ * Copyright 2022 SpinalCom - www.spinalcom.com
+ *
+ * This file is part of SpinalCore.
+ *
+ * Please read all of the following terms and conditions
+ * of the Free Software license Agreement ("Agreement")
+ * carefully.
+ *
+ * This Agreement is a legally binding contract between
+ * the Licensee (as defined below) and SpinalCom that
+ * sets forth the terms and conditions that govern your
+ * use of the Program. By installing and/or using the
+ * Program, you agree to abide by all the terms and
+ * conditions stated or referenced herein.
+ *
+ * If you do not agree to abide by these terms and
+ * conditions, do not demonstrate your acceptance and do
+ * not install or use the Program.
+ * You should have received a copy of the license along
+ * with this file. If not, see
+ * <http://resources.spinalcom.com/licenses.pdf>.
+ */
+
+import { SpinalGraphService, SpinalNodeRef } from "spinal-env-viewer-graph-service";
+import { SpinalNode } from "spinal-model-graph"
+import { spinalCore, Process } from "spinal-core-connectorjs_type";
+import * as constants from "./constants"
+import { NetworkService, InputDataEndpoint, InputDataEndpointDataType, InputDataEndpointType } from "spinal-model-bmsnetwork"
+import { SpinalAttribute } from "spinal-models-documentation/declarations";
+import { attributeService, ICategory } from "spinal-env-viewer-plugin-documentation-service";
+import { InfoStore, LightInfo, PositionDataLight, PositionsDataStore, PositionTempData } from "./types";
+import { ProcessBind } from "./processBind";
+export const networkService = new NetworkService()
+
+
+
+/**
+ * @export
+ * @class Utils
+ */
+export class Utils {
+    processBind: ProcessBind = new ProcessBind();
+    ATTRIBUTE_NAME = "controlValue";
+    INIT_ZONE_MODE = "initZoneMode";
+    ATTRIBUTE_CATEGORY_NAME = "default";
+    DEFAULT_COMMAND_VALUE = "null";
+    store_filter = "SRG_ELE_Moteur store";
+
+
+    /**
+     
+
+    /**
+     * Function that returns Positions from an equipment context 
+     * @param  {string} contextName
+     * @param  {string} categoryName
+     * @param  {string} GroupName
+     * @returns Promise
+     */
+    public async getPositions(ContextName: string, CategoryName: string, GroupName: string): Promise<SpinalNodeRef[]> {
+        try {
+            const Context = SpinalGraphService.getContext(ContextName);
+            if (!Context) {
+                console.log("Context not found");
+                return [];
+            }
+
+            const ContextID = Context.info.id.get();
+            const category = (await SpinalGraphService.getChildren(ContextID, ["hasCategory"])).find(child => child.name.get() === CategoryName);
+            if (!category) {
+                console.log("Category 'Typologie' not found");
+                return [];
+            }
+
+            const categoryID = category.id.get();
+            const Groups = await SpinalGraphService.getChildren(categoryID, ["hasGroup"]);
+            if (Groups.length === 0) {
+                console.log("No groups found under the category");
+                return [];
+            }
+
+            const PosGroup = Groups.find(group => group.name.get() === GroupName);
+            if (!PosGroup) {
+                console.log("Group 'Positions de travail' not found");
+                return [];
+            }
+
+            //console.log("Group 'Positions de travail' found:", PosGroup);
+
+            const Positions = await SpinalGraphService.getChildren(PosGroup.id.get(), ["groupHasBIMObject"]);
+            if (Positions.length === 0) {
+                console.log("No positions found in the bmsgroup");
+                return [];
+            }
+
+            //console.log("Positions found:", Positions);
+            return Positions;
+
+        } catch (error) {
+            console.error("Error in getPositions:", error);
+            return [];
+        }
+    }
+
+    public async getCommandControlPoint(workpositionId: string, controlPointName: String): Promise<SpinalNodeRef | undefined> {
+        const NODE_TO_CONTROL_POINTS_RELATION = "hasControlPoints";
+        const CONTROL_POINTS_TO_BMS_ENDPOINT_RELATION = "hasBmsEndpoint";
+
+        // Fetch all control points associated with the work position
+        const allControlPoints = await SpinalGraphService.getChildren(workpositionId, [NODE_TO_CONTROL_POINTS_RELATION]);
+
+        if (allControlPoints.length > 0) {
+            for (const controlPoint of allControlPoints) {
+                // Fetch all BMS endpoints associated with the control point
+                const allBmsEndpoints = await SpinalGraphService.getChildren(controlPoint.id.get(), [CONTROL_POINTS_TO_BMS_ENDPOINT_RELATION]);
+
+                if (allBmsEndpoints.length > 0) {
+                    for (const bmsEndPoint of allBmsEndpoints) {
+                        // Check if the BMS endpoint matches the criteria
+                        if (bmsEndPoint.name.get() === controlPointName) {
+                            const nodeElement = await bmsEndPoint.element.load();
+                            if (nodeElement.get().command === 1) {
+                                return bmsEndPoint; // Return the matching endpoint
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Return undefined if no matching endpoint is found
+        return undefined;
+    }
+
+
+
+    public async getGroupsForPosition(workpositionId: string): Promise<Array<{ updateEndpoint: SpinalNodeRef; pourcEndpoint: SpinalNodeRef }>> {
+        
+         const result: LightInfo[] = [];
+        const allbimObjects = await SpinalGraphService.getChildren(workpositionId, ["hasNetworkTreeBimObject"]);
+        const DetResults = await Promise.all(
+            allbimObjects.map(async (bimObject) => {
+                const parents = await SpinalGraphService.getParents(bimObject.id.get(), ["groupHasBIMObject"]);
+                if (parents.length !== 0) {
+                    const isDetecteur = parents.some(parent => parent.name.get() == process.env.groupe_detecteur);
+                    if (isDetecteur) return bimObject;
+                }
+                return null;
+            })
+        );
+        const detList = DetResults.filter((b): b is SpinalNodeRef => b !== null);
+        for (const det of detList) {
+            const grpDALI = (await SpinalGraphService.getChildren(det.id.get(), ["hasBmsEndpoint"])).find(child => child.name.get().includes("GRP"));
+            if (grpDALI) {
+
+                const Allendpoints = await SpinalGraphService.getChildren(grpDALI.id.get(), ["hasBmsEndpoint"]);
+                const updateEndpoint = Allendpoints.find(child => child.name.get() === constants.UpdateLightEndpointName);
+                const pourcEndpoint = Allendpoints.find(child => child.name.get() === constants.pourcLightEndpointName);
+
+                if (updateEndpoint && pourcEndpoint) {
+                    result.push({ updateEndpoint, pourcEndpoint });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    // function to get stores linked to position 
+    public async getStoreForPosition(workpositionId: string): Promise<InfoStore[]> {
+        const result: InfoStore[] = [];
+        const allbimObjects = await SpinalGraphService.getChildren(workpositionId, ["hasNetworkTreeBimObject"]);
+        const storeResults = await Promise.all(
+            allbimObjects.map(async (bimObject) => {
+                const parents = await SpinalGraphService.getParents(bimObject.id.get(), ["groupHasBIMObject"]);
+                if (parents.length !== 0) {
+                    const isStore = parents.some(parent => parent.name.get() == process.env.groupe_store);
+                    if (isStore) return bimObject;
+                }
+                return null;
+            })
+        );
+        const stores = storeResults.filter((b): b is SpinalNodeRef => b !== null);
+        const seenBsoIds = new Set<string>();
+        for (const store of stores) {
+            const bso = await SpinalGraphService.getChildren(store.id.get(), ["hasBmsEndpoint"]);
+            if (bso.length !== 0) {
+                const bsoID = bso[0].id.get();
+                if (seenBsoIds.has(bsoID)) continue;
+                seenBsoIds.add(bsoID);
+                const bmsEndpoints = await SpinalGraphService.getChildren(bsoID, ["hasBmsEndpoint"]);
+                const PositionBSO = bmsEndpoints.find(child => child.name.get() === "bPositionBSO");
+                const PositionLamelle = bmsEndpoints.find(child => child.name.get() === "bPositionLamelle");
+                if (PositionBSO && PositionLamelle) {
+                    result.push({ bso: bso[0], posBsoEndpoint: PositionBSO, posLamelleEndpoint: PositionLamelle });
+                }
+            }
+        }
+
+        return result;
+    } 
+    
+
+    /**
+        * Function that search for the targeted attribute of a node and update it's value 
+        * @param  {SpinalNode} endpointNode
+        * @param  {any} valueToPush
+        * @returns Promise
+        */
+    public async updateControlValueAttribute(endpointNode: SpinalNode<any>, attributeCategoryName: string | ICategory, attributeName: string, valueToPush: any): Promise<SpinalAttribute | undefined> {
+        const attribute = await this._getEndpointControlValue(endpointNode, attributeCategoryName, attributeName)
+        if (attribute) {
+            attribute.value.set(valueToPush);
+            console.log(attributeName+ " of : " + endpointNode.info.name.get() +" ==>  is updated with the value : " + attribute.value);
+            return attribute;
+        }
+        else {
+            console.log(valueToPush + " value to push in node : " + endpointNode.info.name.get() + " -- ABORTED !");
+        }
+    }
+
+
+
+    /**
+        * Function that search and return the targeted attribute. Creates it if it doesn't exist with a default value of null
+        * @param  {SpinalNode} endpointNode
+        * @returns Promise
+        */
+    public async _getEndpointControlValue(endpointNode: SpinalNode<any>, attributeCategoryName: string | ICategory, attributeName: string): Promise<SpinalAttribute> {
+        const attribute = await attributeService.findOneAttributeInCategory(endpointNode, attributeCategoryName, attributeName)
+        if (attribute != -1) return attribute;
+
+        return attributeService.addAttributeByCategoryName(endpointNode, this.ATTRIBUTE_CATEGORY_NAME, attributeName, this.DEFAULT_COMMAND_VALUE);
+    }
+
+    public async BindPositionsToGrpDALI(posList: PositionDataLight[]) {
+        for (const item of posList) {
+            const { position, CP_light: controlPoint_light, LightINFO } = item;
+
+            // Vérifier si controlPoint et LightINFO sont valides
+            if (controlPoint_light != undefined && LightINFO.length > 0) {
+                console.log("Binding control point:", controlPoint_light.name.get(), "for position", position.name.get());
+                let CPmodifDate = controlPoint_light.directModificationDate;
+                //console.log("DirectModificationDate for", controlPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id])
+                // Surveiller les modifications pour ce controlPoint
+                this.processBind.addBind(CPmodifDate,
+                    // CPmodifDate.bind(async () => {
+                    async () => {
+                        console.log("Control Point modified:", controlPoint_light.name.get());
+                        //await this.bindControlPointCallBack(item);
+                        const endpointValue = (await controlPoint_light.element.load()).currentValue.get();
+                        console.log("Endpoint value for", controlPoint_light.name.get(), ":", endpointValue);
+                        for (const info of LightINFO) {
+                            // add code to update the pourcEndpoint with the value of the control point and to update the updateEndpoint with "1" to trigger the action in bms network
+                            //await this.updateEndpointValue(info.pourcEndpoint, endpointValue);
+                            console.log("updating endpoint with value ", ":" , endpointValue);
+
+                            //await this.updateEndpointValue(info.updateEndpoint,"1");
+                        }
+
+                    })
+                // }, false);
+            }
+        }
+    }
+
+    public async updateEndpointValue(endpoint: SpinalNodeRef, valueToPush: string) {
+        const endpointNode = SpinalGraphService.getRealNode(endpoint.id.get());
+        //update controlValue attribute for the endpoint sig_Hauteur
+        await this.updateControlValueAttribute(endpointNode, this.ATTRIBUTE_CATEGORY_NAME, this.ATTRIBUTE_NAME, valueToPush);
+        endpointNode.info.directModificationDate.set(Date.now());
+    }
+
+    public async BindStoresControlPoint(posList: PositionsDataStore[]) {
+
+        for (const item of posList) {
+            const { position, CP: controlPoint, CP_Rotation: controlRotationPoint, storeINFO } = item;
+
+            // Vérifier si controlPoint et PosINFO sont valides
+            if (controlPoint != undefined && storeINFO.length > 0) {
+                console.log("Binding control point:", controlPoint.name.get(), "for position", position.name.get());
+
+                let CPmodifDate = controlPoint.directModificationDate;
+                //console.log("DirectModificationDate for", controlPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlPoint.name.get());
+                    for (const info of storeINFO) {
+                        const endpValue = (await controlPoint.element.load()).currentValue.get();
+                        await this.updateEndpointValue(info.posBsoEndpoint, endpValue);
+                    }
+                });
+                // }, false);
+            }
+        }
+
+    }
+
+    public async BindStoresRotationControlPoint(posList: PositionsDataStore[]) {
+
+        for (const item of posList) {
+            const { position, CP : controlPoint, CP_Rotation: controlRotationPoint, storeINFO } = item;
+
+            // Vérifier si controlPoint et PosINFO sont valides
+            if (controlRotationPoint != undefined && storeINFO.length > 0) {
+                console.log("Binding control point:", controlRotationPoint.name.get(), "for position", position.name.get());
+
+                let CPmodifDate = controlRotationPoint.directModificationDate;
+                //console.log("DirectModificationDate for", controlRotationPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlRotationPoint.name.get());
+                    for (const info of storeINFO) {
+                        const endpValue = (await controlRotationPoint.element.load()).currentValue.get();
+                        await this.updateEndpointValue(info.posLamelleEndpoint, endpValue);
+                    }
+                });
+                // }, false);
+            }
+        }
+
+    }
+
+
+   
+
+   
+
+    public async getTempEndpoint(positionID: string): Promise<SpinalNodeRef | undefined> {
+        try {
+            
+             const consignes = await SpinalGraphService.getChildren(positionID, ["hasBmsEndpoint"]);
+             if (consignes.length === 0) {
+                console.log("No BMS endpoints found for position ID:", positionID);
+                return undefined;
+            }
+            const endpointList = await SpinalGraphService.getChildren(consignes[0].id.get(), ["hasBmsEndpoint"]);
+            if (endpointList.length === 0) {
+                console.log("No BMS endpoints found in consigne for position ID:", positionID);
+                return undefined;
+            }
+            const endpoint = endpointList.find(child => child.name.get() === constants.TempEndpointName);
+            return (endpoint);
+
+        } catch (error) {
+            const realposition = SpinalGraphService.getRealNode(positionID);
+            console.log(realposition._server_id, "getTempEndpoint ERROR for position", realposition.info.name.get());
+
+        }
+
+    }
+    public async BindTempControlPoint(TempDataList: PositionTempData[]) {
+
+        for (const item of TempDataList) {
+            const { position, CP_temp: controlPoint_temp, TempEndpoint } = item;
+            //console.log(TempEndpoint, "TempEndpoint for position", position.name.get());
+
+
+            if (controlPoint_temp != undefined && TempEndpoint != undefined) {
+                console.log("Binding Temperature control point:", controlPoint_temp.name.get(), "for position", position.name.get());
+
+                let CPmodifDate = controlPoint_temp.directModificationDate;
+                  //console.log("DirectModificationDate for", controlPoint_temp.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlPoint_temp.name.get() ,"for position", position.name.get());
+                    const endpValue = (await controlPoint_temp.element.load()).currentValue.get();
+                    console.log("Updating temperature endpoint with value:", endpValue);
+                    await this.updateEndpointValue(TempEndpoint, endpValue);
+                    console.log("Temperature endpoint updated for position", position.name.get());
+                });
+                // }, false);
+            }
+        }
+    }
+
+}
