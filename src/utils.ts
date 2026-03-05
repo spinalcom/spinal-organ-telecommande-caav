@@ -29,8 +29,9 @@ import * as constants from "./constants"
 import { NetworkService, InputDataEndpoint, InputDataEndpointDataType, InputDataEndpointType } from "spinal-model-bmsnetwork"
 import { SpinalAttribute } from "spinal-models-documentation/declarations";
 import { attributeService, ICategory } from "spinal-env-viewer-plugin-documentation-service";
-import { InfoStore, LightInfo, PositionDataLight, PositionsDataStore, PositionTempData } from "./types";
+import { InfoStore, LightInfo, PositionDataLight, PositionsDataStore, PositionTempData, RoomDataBlind, RoomDataLight,RoomTempData } from "./types";
 import { ProcessBind } from "./processBind";
+import { all } from "axios";
 export const networkService = new NetworkService()
 
 
@@ -103,6 +104,86 @@ export class Utils {
         }
     }
 
+    public async getRoomList(ContextName: string, CategoryName: string, GroupName: string): Promise<SpinalNodeRef[]> {
+        try {
+            const Context = SpinalGraphService.getContext(ContextName);
+            if (!Context) {
+                console.log("Context not found");
+                return [];
+            }
+            //console.log("Context found:", Context.info.name.get());
+
+            const ContextID = Context.info.id.get();
+            const category = (await SpinalGraphService.getChildren(ContextID, ["hasCategory"])).find(child => child.name.get() === CategoryName);
+            if (!category) {
+                console.log("Category 'Typologie' not found");
+                return [];
+            }
+            //console.log("Category found:", category.name.get());
+
+            const categoryID = category.id.get();
+            const Groups = await SpinalGraphService.getChildren(categoryID, ["hasGroup"]);
+            if (Groups.length === 0) {
+                console.log("No groups found under the category");
+                return [];
+            }
+            //console.log("Groups found :", Groups.map(group => group.name.get()));
+
+            const RoomGroup = Groups.find(group => group.name.get() === GroupName);
+            if (!RoomGroup) {
+                console.log("Group  not found");
+                return [];
+            }
+
+            //console.log("Group 'Positions de travail' found:", RoomGroup);
+
+            const roomlist = await SpinalGraphService.getChildren(RoomGroup.id.get(), ["groupHasgeographicRoom"]);
+            if (roomlist.length === 0) {
+                console.log("rooms not found in the group");
+                return [];
+            }
+
+            return roomlist;
+
+        } catch (error) {
+            console.error("Error in getRoomList:", error);
+            return [];
+        }
+    }
+
+    public async getEndpointForRoom(endpointName: string, roomId: string, bimObjectGroup : string): Promise<SpinalNodeRef[]> {
+        const NODE_TO_ENDPOINT_RELATION = "hasBmsEndpoint";
+        const NODE_TO_BIM_OBJECT_RELATION = "hasBimObject";
+        const matchingEndpoints: SpinalNodeRef[] = [];
+
+        const allBimObjects = await SpinalGraphService.getChildren(roomId, [NODE_TO_BIM_OBJECT_RELATION]);
+        if (allBimObjects.length === 0) {
+            console.log("No BIM objects found for the room with ID:", roomId);
+            return [];
+        }
+        for (const bimObject of allBimObjects) {
+
+            const parents = await SpinalGraphService.getParents(bimObject.id.get(), ["groupHasBIMObject"]);
+            if (parents.length !== 0) {
+                const isobject = parents.some(parent => parent.name.get() == bimObjectGroup);
+                if (isobject) {
+                    const endpoints = await SpinalGraphService.getChildren(bimObject.id.get(), [NODE_TO_ENDPOINT_RELATION]);
+                    if (endpoints.length !== 0) {
+                        const matchingEndpoint = endpoints.filter(endpoint => endpoint.name.get().includes(endpointName));
+                        matchingEndpoints.push(...matchingEndpoint);
+                    }
+                }
+            }
+        }
+        
+
+        
+
+        return matchingEndpoints; // Return the list of matching endpoints
+    }
+
+     
+
     public async getCommandControlPoint(workpositionId: string, controlPointName: String): Promise<SpinalNodeRef | undefined> {
         const NODE_TO_CONTROL_POINTS_RELATION = "hasControlPoints";
         const CONTROL_POINTS_TO_BMS_ENDPOINT_RELATION = "hasBmsEndpoint";
@@ -167,6 +248,39 @@ export class Utils {
         return result;
     }
 
+    public async getGroupsForRoom(roomId: string): Promise<Array<{ updateEndpoint: SpinalNodeRef; pourcEndpoint: SpinalNodeRef }>> {
+        
+         const result: LightInfo[] = [];
+        const allbimObjects = await SpinalGraphService.getChildren(roomId, ["hasBimObject"]);
+        const DetResults = await Promise.all(
+            allbimObjects.map(async (bimObject) => {
+                const parents = await SpinalGraphService.getParents(bimObject.id.get(), ["groupHasBIMObject"]);
+                if (parents.length !== 0) {
+                    const isDetecteur = parents.some(parent => parent.name.get() == process.env.groupe_detecteur);
+                    if (isDetecteur) return bimObject;
+                }
+                return null;
+            })
+        );
+        const detList = DetResults.filter((b): b is SpinalNodeRef => b !== null);
+        for (const det of detList) {
+            const grpDALI = (await SpinalGraphService.getChildren(det.id.get(), ["hasBmsEndpoint"])).find(child => child.name.get().includes("GRP"));
+            if (grpDALI) {
+
+                const Allendpoints = await SpinalGraphService.getChildren(grpDALI.id.get(), ["hasBmsEndpoint"]);
+                const updateEndpoint = Allendpoints.find(child => child.name.get() === constants.UpdateLightEndpointName);
+                const pourcEndpoint = Allendpoints.find(child => child.name.get() === constants.pourcLightEndpointName);
+
+                if (updateEndpoint && pourcEndpoint) {
+                    result.push({ updateEndpoint, pourcEndpoint });
+                }
+            }
+        }
+
+        return result;
+    }
+
+
     // function to get stores linked to position 
     public async getStoreForPosition(workpositionId: string): Promise<InfoStore[]> {
         const result: InfoStore[] = [];
@@ -200,6 +314,41 @@ export class Utils {
 
         return result;
     } 
+
+
+    public async getStoreForRoom(roomid: string): Promise<InfoStore[]> {
+        const result: InfoStore[] = [];
+        const allbimObjects = await SpinalGraphService.getChildren(roomid, ["hasBimObject"]);
+        const storeResults = await Promise.all(
+            allbimObjects.map(async (bimObject) => {
+                const parents = await SpinalGraphService.getParents(bimObject.id.get(), ["groupHasBIMObject"]);
+                if (parents.length !== 0) {
+                    const isStore = parents.some(parent => parent.name.get() == process.env.groupe_store);
+                    if (isStore) return bimObject;
+                }
+                return null;
+            })
+        );
+        const stores = storeResults.filter((b): b is SpinalNodeRef => b !== null);
+        const seenBsoIds = new Set<string>();
+        for (const store of stores) {
+            const bso = await SpinalGraphService.getChildren(store.id.get(), ["hasBmsEndpoint"]);
+            if (bso.length !== 0) {
+                const bsoID = bso[0].id.get();
+                if (seenBsoIds.has(bsoID)) continue;
+                seenBsoIds.add(bsoID);
+                const bmsEndpoints = await SpinalGraphService.getChildren(bsoID, ["hasBmsEndpoint"]);
+                const PositionBSO = bmsEndpoints.find(child => child.name.get() === "bPositionBSO");
+                const PositionLamelle = bmsEndpoints.find(child => child.name.get() === "bPositionLamelle");
+                if (PositionBSO && PositionLamelle) {
+                    result.push({ bso: bso[0], posBsoEndpoint: PositionBSO, posLamelleEndpoint: PositionLamelle });
+                }
+            }
+        }
+
+        return result;
+    } 
+    
     
 
     /**
@@ -212,11 +361,11 @@ export class Utils {
         const attribute = await this._getEndpointControlValue(endpointNode, attributeCategoryName, attributeName)
         if (attribute) {
             attribute.value.set(valueToPush);
-            console.log(attributeName+ " of : " + endpointNode.info.name.get() +" ==>  is updated with the value : " + attribute.value);
+            console.log(attributeName+ " of : " + endpointNode.info.path.get() +" ==>  is updated with the value : " + attribute.value);
             return attribute;
         }
         else {
-            console.log(valueToPush + " value to push in node : " + endpointNode.info.name.get() + " -- ABORTED !");
+            console.log(valueToPush + " value to push in node : " + endpointNode.info.path.get() + " -- ABORTED !");
         }
     }
 
@@ -247,16 +396,17 @@ export class Utils {
                 this.processBind.addBind(CPmodifDate,
                     // CPmodifDate.bind(async () => {
                     async () => {
-                        console.log("Control Point modified:", controlPoint_light.name.get());
+                        console.log("Control Point modified:", controlPoint_light.name.get(), "for position", position.name.get());
                         //await this.bindControlPointCallBack(item);
                         const endpointValue = (await controlPoint_light.element.load()).currentValue.get();
                         console.log("Endpoint value for", controlPoint_light.name.get(), ":", endpointValue);
                         for (const info of LightINFO) {
                             // add code to update the pourcEndpoint with the value of the control point and to update the updateEndpoint with "1" to trigger the action in bms network
-                            //await this.updateEndpointValue(info.pourcEndpoint, endpointValue);
                             console.log("updating endpoint with value ", ":" , endpointValue);
 
-                            //await this.updateEndpointValue(info.updateEndpoint,"1");
+                            await this.updateEndpointValue(info.updateEndpoint,"1");
+
+                            await this.updateEndpointValue(info.pourcEndpoint, endpointValue);
                         }
 
                     })
@@ -264,7 +414,37 @@ export class Utils {
             }
         }
     }
+    public async BindRoomLight(roomList: RoomDataLight[]) {
+         for (const item of roomList) {
+            const { room, CP_light: controlPoint_light, LightINFO } = item;
 
+            // Vérifier si controlPoint et LightINFO sont valides
+            if (controlPoint_light != undefined && LightINFO.length > 0) {
+                console.log("Binding control point:", controlPoint_light.name.get(), "for room", room.name.get());
+                let CPmodifDate = controlPoint_light.directModificationDate;
+                //console.log("DirectModificationDate for", controlPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id])
+                // Surveiller les modifications pour ce controlPoint
+                this.processBind.addBind(CPmodifDate,
+                    // CPmodifDate.bind(async () => {
+                    async () => {
+                        console.log("Control Point modified:", controlPoint_light.name.get(), "for room", room.name.get());
+                        //await this.bindControlPointCallBack(item);
+                        const endpointValue = (await controlPoint_light.element.load()).currentValue.get();
+                        console.log("Endpoint value for", controlPoint_light.name.get(), ":", endpointValue);
+                        for (const info of LightINFO) {
+                            // add code to update the pourcEndpoint with the value of the control point and to update the updateEndpoint with "1" to trigger the action in bms network
+                            console.log("updating endpoint with value ", ":" , endpointValue);
+
+                            await this.updateEndpointValue(info.updateEndpoint,"1");
+
+                            await this.updateEndpointValue(info.pourcEndpoint, endpointValue);
+                        }
+
+                    })
+                // }, false);
+            }
+        }
+    }
     public async updateEndpointValue(endpoint: SpinalNodeRef, valueToPush: string) {
         const endpointNode = SpinalGraphService.getRealNode(endpoint.id.get());
         //update controlValue attribute for the endpoint sig_Hauteur
@@ -287,6 +467,32 @@ export class Utils {
                 // CPmodifDate.bind(async () => {
                 this.processBind.addBind(CPmodifDate, async () => {
                     console.log("Control Point modified:", controlPoint.name.get());
+                    for (const info of storeINFO) {
+                        const endpValue = (await controlPoint.element.load()).currentValue.get();
+                        await this.updateEndpointValue(info.posBsoEndpoint, endpValue);
+                    }
+                });
+                // }, false);
+            }
+        }
+
+    }
+
+    public async BindBlindControlPointForRoom(RoomList: RoomDataBlind[]) {
+
+        for (const item of RoomList) {
+            const { room, CP: controlPoint, CP_Rotation: controlRotationPoint, storeINFO } = item;
+
+            // Vérifier si controlPoint et PosINFO sont valides
+            if (controlPoint != undefined && storeINFO.length > 0) {
+                console.log("Binding control point:", controlPoint.name.get(), "for room", room.name.get());
+
+                let CPmodifDate = controlPoint.directModificationDate;
+                //console.log("DirectModificationDate for", controlPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlPoint.name.get(),"for room", room.name.get());
                     for (const info of storeINFO) {
                         const endpValue = (await controlPoint.element.load()).currentValue.get();
                         await this.updateEndpointValue(info.posBsoEndpoint, endpValue);
@@ -324,6 +530,32 @@ export class Utils {
 
     }
 
+    public async BindBlindRotationControlPointForRoom(RoomList: RoomDataBlind[]) {
+
+        for (const item of RoomList) {
+            const { room, CP : controlPoint, CP_Rotation: controlRotationPoint, storeINFO } = item;
+
+            // Vérifier si controlPoint et PosINFO sont valides
+            if (controlRotationPoint != undefined && storeINFO.length > 0) {
+                console.log("Binding control point:", controlRotationPoint.name.get(), "for room", room.name.get());
+
+                let CPmodifDate = controlRotationPoint.directModificationDate;
+                //console.log("DirectModificationDate for", controlRotationPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlRotationPoint.name.get(),"for room", room.name.get());
+                    for (const info of storeINFO) {
+                        const endpValue = (await controlRotationPoint.element.load()).currentValue.get();
+                        await this.updateEndpointValue(info.posLamelleEndpoint, endpValue);
+                    }
+                });
+                // }, false);
+            }
+        }
+
+    }
+
 
    
 
@@ -334,12 +566,12 @@ export class Utils {
             
              const consignes = await SpinalGraphService.getChildren(positionID, ["hasBmsEndpoint"]);
              if (consignes.length === 0) {
-                console.log("No BMS endpoints found for position ID:", positionID);
+                //console.log("No BMS endpoints found for position ID:", positionID);
                 return undefined;
             }
             const endpointList = await SpinalGraphService.getChildren(consignes[0].id.get(), ["hasBmsEndpoint"]);
             if (endpointList.length === 0) {
-                console.log("No BMS endpoints found in consigne for position ID:", positionID);
+                //console.log("No BMS endpoints found in consigne for position ID:", positionID);
                 return undefined;
             }
             const endpoint = endpointList.find(child => child.name.get() === constants.TempEndpointName);
@@ -348,6 +580,42 @@ export class Utils {
         } catch (error) {
             const realposition = SpinalGraphService.getRealNode(positionID);
             console.log(realposition._server_id, "getTempEndpoint ERROR for position", realposition.info.name.get());
+
+        }
+
+    }
+
+    public async getRoomTempEndpoint(roomID: string): Promise<SpinalNodeRef | undefined> {
+        try {
+            
+
+             const loc = await SpinalGraphService.getChildren(roomID, ["hasBmsEndpoint"]);
+                if (loc.length === 0) { 
+                    //console.log("No BMS endpoints found for room ID:", roomID);
+                    return undefined;
+                }
+
+             const allbsmendpoints = await SpinalGraphService.getChildren(loc[0].id.get(), ["hasBmsEndpoint"]);
+             if(allbsmendpoints.length === 0){      
+                //console.log("No BMS endpoints found in consigne for room ID:", roomID);
+                return undefined;
+             } 
+             const consignes = allbsmendpoints.find(child => child.name.get() === "Consignes");
+             if (!consignes) {
+                //console.log("No BMS endpoints found for room ID:", roomID);
+                return undefined;
+            }
+            const endpointList = await SpinalGraphService.getChildren(consignes.id.get(), ["hasBmsEndpoint"]);
+            if (endpointList.length === 0) {
+                //console.log("No BMS endpoints found in consigne for room ID:", roomID);
+                return undefined;
+            }
+            const endpoint = endpointList.find(child => child.name.get() === constants.TempEndpointName);
+            return (endpoint);
+
+        } catch (error) {
+            const realroom = SpinalGraphService.getRealNode(roomID);
+            console.log(realroom._server_id, "getRoomTempEndpoint ERROR for room", realroom.info.name.get());
 
         }
 
@@ -372,6 +640,32 @@ export class Utils {
                     console.log("Updating temperature endpoint with value:", endpValue);
                     await this.updateEndpointValue(TempEndpoint, endpValue);
                     console.log("Temperature endpoint updated for position", position.name.get());
+                });
+                // }, false);
+            }
+        }
+    }
+
+    public async BindRoomTempControlPoint(TempDataList: RoomTempData[]) {
+
+        for (const item of TempDataList) {
+            const { room, CP_temp: controlPoint_temp, TempEndpoint } = item;
+            //console.log(TempEndpoint, "TempEndpoint for room", room.name.get());
+
+
+            if (controlPoint_temp != undefined && TempEndpoint != undefined) {
+                console.log("Binding Temperature control point:", controlPoint_temp.name.get(), "for room", room.name.get());
+
+                let CPmodifDate = controlPoint_temp.directModificationDate;
+                console.log("DirectModificationDate for", controlPoint_temp.name.get(), "for room", room.name.get());
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlPoint_temp.name.get() ,"for room", room.name.get());
+                    const endpValue = (await controlPoint_temp.element.load()).currentValue.get();
+                    console.log("Updating temperature endpoint with value:", endpValue);
+                    await this.updateEndpointValue(TempEndpoint, endpValue);
+                    //console.log("Temperature endpoint updated for room", room.name.get());
                 });
                 // }, false);
             }

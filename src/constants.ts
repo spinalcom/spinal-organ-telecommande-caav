@@ -27,9 +27,14 @@ export const LightControlPoint = "COMMAND_LIGHT"
 export const StoreControlPoint = "COMMAND_BLIND"
 export const StroreRotationControlPoint = "COMMAND_BLIND_ROTATION"
 export const HeatControlPoint="COMMAND_TEMPERATURE"
+
+
+export const groupdaliName = "DALI_001_GRP_"
+export const groupBSOName = "BSO_GRPB_"
+
 export const TempEndpointName = "rConsDecalage"
-export const UpdateLightEndpointName = "xDEF"
-export const pourcLightEndpointName = "xCMD"
+export const UpdateLightEndpointName = "xDEF"// pour les tests ( à changer)
+export const pourcLightEndpointName = "xCMD" // pour les tests ( à changer)
 
 
 
