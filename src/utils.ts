@@ -564,17 +564,24 @@ export class Utils {
     public async getTempEndpoint(positionID: string): Promise<SpinalNodeRef | undefined> {
         try {
             
-             const consignes = await SpinalGraphService.getChildren(positionID, ["hasBmsEndpoint"]);
-             if (consignes.length === 0) {
+             const endpointList = await SpinalGraphService.getChildren(positionID, ["hasBmsEndpoint"]);
+             if (endpointList.length === 0) {
                 //console.log("No BMS endpoints found for position ID:", positionID);
                 return undefined;
             }
-            const endpointList = await SpinalGraphService.getChildren(consignes[0].id.get(), ["hasBmsEndpoint"]);
+
+            const consignes = endpointList.find(element => element.name.get()=="Consignes")
+
+            if (consignes == undefined){
+                return undefined;
+            }
+
+            const consEndpoints = await SpinalGraphService.getChildren(consignes.id.get(), ["hasBmsEndpoint"]);
             if (endpointList.length === 0) {
                 //console.log("No BMS endpoints found in consigne for position ID:", positionID);
                 return undefined;
             }
-            const endpoint = endpointList.find(child => child.name.get() === constants.TempEndpointName);
+            const endpoint = consEndpoints.find(child => child.name.get() === constants.TempEndpointName);
             return (endpoint);
 
         } catch (error) {
@@ -589,18 +596,25 @@ export class Utils {
         try {
             
 
-             const loc = await SpinalGraphService.getChildren(roomID, ["hasBmsEndpoint"]);
-                if (loc.length === 0) { 
+             const allEndpoints = await SpinalGraphService.getChildren(roomID, ["hasBmsEndpoint"]);
+                if (allEndpoints.length === 0) { 
                     //console.log("No BMS endpoints found for room ID:", roomID);
                     return undefined;
                 }
+             
+             const loc = allEndpoints.find(element=> element.name.get().includes("LOC"))
+             
+             if (loc == undefined){
 
-             const allbsmendpoints = await SpinalGraphService.getChildren(loc[0].id.get(), ["hasBmsEndpoint"]);
-             if(allbsmendpoints.length === 0){      
+                return undefined
+             }
+
+             const Tempbsmendpoints = await SpinalGraphService.getChildren(loc.id.get(), ["hasBmsEndpoint"]);
+             if(Tempbsmendpoints.length === 0){      
                 //console.log("No BMS endpoints found in consigne for room ID:", roomID);
                 return undefined;
              } 
-             const consignes = allbsmendpoints.find(child => child.name.get() === "Consignes");
+             const consignes = Tempbsmendpoints.find(child => child.name.get() === "Consignes");
              if (!consignes) {
                 //console.log("No BMS endpoints found for room ID:", roomID);
                 return undefined;
