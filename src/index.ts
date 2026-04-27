@@ -28,7 +28,7 @@ import { spinalCore, FileSystem } from "spinal-core-connectorjs_type";
 import * as config from "../config";
 import { Utils } from "./utils"
 import * as constants from "./constants"
-import { PositionDataLight, PositionsDataStore, PositionTempData, RoomData, RoomDataLight, RoomDataBlind, RoomTempData } from "./types";
+import { PositionDataLight, PositionsDataStore, PositionTempData, RoomData, RoomDataLight, RoomDataBlind, RoomTempData, PositionsDataStore2 } from "./types";
 const utils = new Utils();
 
 
@@ -84,11 +84,13 @@ class SpinalMain {
     public async positionControl() {
 
         const Positions = await utils.getPositions(process.env.context_position, process.env.category_position, process.env.groupe_position);
+        const Poisinton_double_control = await utils.getPositions(process.env.context_position, process.env.category_position, process.env.groupe_position_double_control);
+        
 
         console.log("Positions found : ", Positions.length);
 
         this.LightControl(Positions);
-        this.StoresControl(Positions);
+        this.StoresControl(Positions, Poisinton_double_control);
         this.TempControl(Positions);
 
     }
@@ -175,10 +177,22 @@ class SpinalMain {
         return { position, CP_light: CP, LightINFO };
     }
     public async getPositionDataStore(position: SpinalNodeRef): Promise<PositionsDataStore> {
+
+        const storeINFO = await utils.getStoreForPosition(position.id.get(), constants.positionBsoEndpoint, constants.posLamelleEndpoint,constants.updateStoreEndpoint);
         const CP = await utils.getCommandControlPoint(position.id.get(), constants.StoreControlPoint);
         const CP_Rotation = await utils.getCommandControlPoint(position.id.get(), constants.StroreRotationControlPoint);
-        const storeINFO = await utils.getStoreForPosition(position.id.get());
-        return { position, CP, CP_Rotation, storeINFO };
+   
+        return { position, CP, CP_Rotation, storeINFO, doubleControl : false };
+    }
+    public async getPositionDataStoreDouble(position: SpinalNodeRef): Promise<PositionsDataStore2> {
+
+        const storeINFO = await utils.getStoreForPosition(position.id.get(), constants.positionBsoEndpoint, constants.posLamelleEndpoint,constants.updateStoreEndpoint);
+        const CP = await utils.getCommandControlPoint(position.id.get(), constants.StoreControlPoint);
+        const CP_Rotation = await utils.getCommandControlPoint(position.id.get(), constants.StroreRotationControlPoint);
+        const CP2 = await utils.getCommandControlPoint(position.id.get(), constants.StoreControlPoint2);
+        const CP_Rotation2 = await utils.getCommandControlPoint(position.id.get(), constants.StoreRotationControlPoint2);
+   
+        return { position, CP, CP_Rotation, CP2, CP_Rotation2, storeINFO, doubleControl : true };
     }
   
     public async getPositionTempData(position: SpinalNodeRef): Promise<PositionTempData> {
@@ -201,17 +215,32 @@ class SpinalMain {
 
     }
 
-    public async StoresControl(Positions: SpinalNodeRef[]) {
+    public async StoresControl(Positions: SpinalNodeRef[], Positions_double_control: SpinalNodeRef[]) {
 
 
-        const promeses2 = Positions.map(async (pos: SpinalNodeRef) => {
+        const promeses1 = Positions.map(async (pos: SpinalNodeRef) => {
             const PosStoreData = this.getPositionDataStore(pos);
             return PosStoreData;
         });
 
-        const storeList = await Promise.all(promeses2);
+        const storeList = await Promise.all(promeses1);
         await utils.BindStoresControlPoint(storeList);
         await utils.BindStoresRotationControlPoint(storeList);
+
+        const promeses2 = Positions_double_control.map(async (pos: SpinalNodeRef) => {
+            const PosStoreDataDouble = this.getPositionDataStoreDouble(pos);
+            return PosStoreDataDouble;
+        });
+
+        const doubleControlStoreList = await Promise.all(promeses2);
+
+        await utils.BindStoresControlPoint(doubleControlStoreList);
+        await utils.BindStoresRotationControlPoint(doubleControlStoreList);
+        await utils.BindStoresControlPoint2(doubleControlStoreList);
+        await utils.BindStoresRotationControlPoint2(doubleControlStoreList);
+
+        
+      
 
         console.log("done binding store control");
 

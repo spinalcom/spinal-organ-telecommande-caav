@@ -29,9 +29,10 @@ import * as constants from "./constants"
 import { NetworkService, InputDataEndpoint, InputDataEndpointDataType, InputDataEndpointType } from "spinal-model-bmsnetwork"
 import { SpinalAttribute } from "spinal-models-documentation/declarations";
 import { attributeService, ICategory } from "spinal-env-viewer-plugin-documentation-service";
-import { InfoStore, LightInfo, PositionDataLight, PositionsDataStore, PositionTempData, RoomDataBlind, RoomDataLight,RoomTempData } from "./types";
+import { InfoStore, LightInfo, PositionDataLight, PositionsDataStore, PositionsDataStore2, PositionTempData, RoomDataBlind, RoomDataLight,RoomTempData } from "./types";
 import { ProcessBind } from "./processBind";
 import { all } from "axios";
+import { StringifyOptions } from "querystring";
 export const networkService = new NetworkService()
 
 
@@ -282,7 +283,7 @@ export class Utils {
 
 
     // function to get stores linked to position 
-    public async getStoreForPosition(workpositionId: string): Promise<InfoStore[]> {
+    public async getStoreForPosition(workpositionId: string,positionBso: string, positionLamelle: string,Xupdate:string): Promise<InfoStore[]> {
         const result: InfoStore[] = [];
         const allbimObjects = await SpinalGraphService.getChildren(workpositionId, ["hasNetworkTreeBimObject"]);
         const storeResults = await Promise.all(
@@ -303,11 +304,13 @@ export class Utils {
                 const bsoID = bso[0].id.get();
                 if (seenBsoIds.has(bsoID)) continue;
                 seenBsoIds.add(bsoID);
+              
                 const bmsEndpoints = await SpinalGraphService.getChildren(bsoID, ["hasBmsEndpoint"]);
-                const PositionBSO = bmsEndpoints.find(child => child.name.get() === "bPositionBSO");
-                const PositionLamelle = bmsEndpoints.find(child => child.name.get() === "bPositionLamelle");
-                if (PositionBSO && PositionLamelle) {
-                    result.push({ bso: bso[0], posBsoEndpoint: PositionBSO, posLamelleEndpoint: PositionLamelle });
+                const PositionBSO = bmsEndpoints.find(child => child.name.get() === positionBso);
+                const PositionLamelle = bmsEndpoints.find(child => child.name.get() === positionLamelle);
+                const xupdate = bmsEndpoints.find(child => child.name.get() === Xupdate);
+                if (PositionBSO && PositionLamelle && xupdate) {
+                    result.push({ bso: bso[0], posBsoEndpoint: PositionBSO, posLamelleEndpoint: PositionLamelle, xupdateEndpoint: xupdate });
                 }
             }
         }
@@ -340,14 +343,47 @@ export class Utils {
                 const bmsEndpoints = await SpinalGraphService.getChildren(bsoID, ["hasBmsEndpoint"]);
                 const PositionBSO = bmsEndpoints.find(child => child.name.get() === "bPositionBSO");
                 const PositionLamelle = bmsEndpoints.find(child => child.name.get() === "bPositionLamelle");
-                if (PositionBSO && PositionLamelle) {
-                    result.push({ bso: bso[0], posBsoEndpoint: PositionBSO, posLamelleEndpoint: PositionLamelle });
+                const xupdate = bmsEndpoints.find(child => child.name.get() === "Xupdate");
+                if (PositionBSO && PositionLamelle && xupdate) {
+                    result.push({ bso: bso[0], posBsoEndpoint: PositionBSO, posLamelleEndpoint: PositionLamelle, xupdateEndpoint: xupdate });
                 }
             }
         }
 
         return result;
     } 
+
+    public getStoreWithHighestBsoNumber(storeINFO: InfoStore[]): InfoStore | undefined {
+        let maxNumber = -1;
+        let result: InfoStore | undefined;
+        for (const info of storeINFO) {
+            const match = info.bso.name.get().match(/\[(\d{1,2})\]/);
+            if (match) {
+                const num = parseInt(match[1]);
+                if (num > maxNumber) {
+                    maxNumber = num;
+                    result = info;
+                }
+            }
+        }
+        return result;
+    }
+       public getStoreWithLowestBsoNumber(storeINFO: InfoStore[]): InfoStore | undefined {
+        let minNumber = Infinity;
+        let result: InfoStore | undefined;
+        for (const info of storeINFO) {
+            const match = info.bso.name.get().match(/\[(\d{1,2})\]/);
+            if (match) {
+                const num = parseInt(match[1]);
+                if (num < minNumber) {
+                    minNumber = num;
+                    result = info;
+                }
+            }
+        }
+        return result;
+    }
+    
     
     
 
@@ -410,7 +446,6 @@ export class Utils {
                         }
 
                     })
-                // }, false);
             }
         }
     }
@@ -441,7 +476,6 @@ export class Utils {
                         }
 
                     })
-                // }, false);
             }
         }
     }
@@ -466,17 +500,50 @@ export class Utils {
                 // Surveiller les modifications pour ce controlPoint
                 // CPmodifDate.bind(async () => {
                 this.processBind.addBind(CPmodifDate, async () => {
-                    console.log("Control Point modified:", controlPoint.name.get());
-                    for (const info of storeINFO) {
+                        console.log("Control Point modified:", controlPoint.name.get());
                         const endpValue = (await controlPoint.element.load()).currentValue.get();
-                        await this.updateEndpointValue(info.posBsoEndpoint, endpValue);
-                    }
+                        const storeWithLowestBsoNumber = this.getStoreWithLowestBsoNumber(storeINFO);
+                        if (storeWithLowestBsoNumber) {
+                            await this.updateEndpointValue(storeWithLowestBsoNumber.xupdateEndpoint, "1");
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await this.updateEndpointValue(storeWithLowestBsoNumber.posBsoEndpoint, endpValue);
+                        }
                 });
-                // }, false);
+            }
+        }
+    }
+
+     public async BindStoresControlPoint2(posList: PositionsDataStore2[]) {
+
+        for (const item of posList) {
+            const { position, CP: controlPoint, CP_Rotation: controlRotationPoint, CP2: controlPoint2, CP_Rotation2: controlRotationPoint2, storeINFO,doubleControl } = item;
+
+            // Vérifier si controlPoint et PosINFO sont valides
+            if (controlPoint2 != undefined && storeINFO.length > 0) {
+                console.log("Binding control point:", controlPoint2.name.get(), "for position", position.name.get());
+
+                let CPmodifDate = controlPoint2.directModificationDate;
+                //console.log("DirectModificationDate for", controlPoint.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlPoint2.name.get());
+                        const endpValue = (await controlPoint2.element.load()).currentValue.get();
+                        const storeWithHighestBsoNumber = this.getStoreWithHighestBsoNumber(storeINFO);
+                        if (storeWithHighestBsoNumber) {
+                            await this.updateEndpointValue(storeWithHighestBsoNumber.xupdateEndpoint, "1");
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await this.updateEndpointValue(storeWithHighestBsoNumber.posBsoEndpoint, endpValue);
+                        }
+                    
+                });
             }
         }
 
+
+        
     }
+
 
     public async BindBlindControlPointForRoom(RoomList: RoomDataBlind[]) {
 
@@ -495,6 +562,8 @@ export class Utils {
                     console.log("Control Point modified:", controlPoint.name.get(),"for room", room.name.get());
                     for (const info of storeINFO) {
                         const endpValue = (await controlPoint.element.load()).currentValue.get();
+                        await this.updateEndpointValue(info.xupdateEndpoint, "1");
+                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
                         await this.updateEndpointValue(info.posBsoEndpoint, endpValue);
                     }
                 });
@@ -519,10 +588,45 @@ export class Utils {
                 // CPmodifDate.bind(async () => {
                 this.processBind.addBind(CPmodifDate, async () => {
                     console.log("Control Point modified:", controlRotationPoint.name.get());
-                    for (const info of storeINFO) {
+                    
                         const endpValue = (await controlRotationPoint.element.load()).currentValue.get();
-                        await this.updateEndpointValue(info.posLamelleEndpoint, endpValue);
-                    }
+                        const storeWithLowestBsoNumber = this.getStoreWithLowestBsoNumber(storeINFO);
+                        if (storeWithLowestBsoNumber) {
+                            await this.updateEndpointValue(storeWithLowestBsoNumber.xupdateEndpoint, "1");
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await this.updateEndpointValue(storeWithLowestBsoNumber.posLamelleEndpoint, endpValue);
+                        }
+
+                });
+                // }, false);sss
+            }
+        }
+
+    }
+    public async BindStoresRotationControlPoint2(posList: PositionsDataStore2[]) {
+
+        for (const item of posList) {
+            const { position, CP : controlPoint, CP_Rotation: controlRotationPoint, CP2: controlPoint2, CP_Rotation2 : controlRotationPoint2, storeINFO, doubleControl } = item;
+
+            // Vérifier si controlPoint et PosINFO sont valides
+            if (controlRotationPoint2 != undefined && storeINFO.length > 0) {
+                console.log("Binding control point:", controlRotationPoint2.name.get(), "for position", position.name.get());
+
+                let CPmodifDate = controlRotationPoint2.directModificationDate;
+                //console.log("DirectModificationDate for", controlRotationPoint2.name.get(), ":", CPmodifDate.get(), [CPmodifDate._server_id]);
+                // Surveiller les modifications pour ce controlPoint
+                // CPmodifDate.bind(async () => {
+                this.processBind.addBind(CPmodifDate, async () => {
+                    console.log("Control Point modified:", controlRotationPoint2.name.get());
+                    
+                        const endpValue = (await controlRotationPoint2.element.load()).currentValue.get();
+                        const storeWithHighestBsoNumber = this.getStoreWithHighestBsoNumber(storeINFO);
+                        if (storeWithHighestBsoNumber) {
+                            await this.updateEndpointValue(storeWithHighestBsoNumber.xupdateEndpoint, "1");
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await this.updateEndpointValue(storeWithHighestBsoNumber.posLamelleEndpoint, endpValue);
+                        }
+                    
                 });
                 // }, false);
             }
@@ -547,6 +651,8 @@ export class Utils {
                     console.log("Control Point modified:", controlRotationPoint.name.get(),"for room", room.name.get());
                     for (const info of storeINFO) {
                         const endpValue = (await controlRotationPoint.element.load()).currentValue.get();
+                        await this.updateEndpointValue(info.xupdateEndpoint, "1");
+                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
                         await this.updateEndpointValue(info.posLamelleEndpoint, endpValue);
                     }
                 });

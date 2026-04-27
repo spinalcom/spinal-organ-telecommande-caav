@@ -22,16 +22,35 @@ export type RoomDataBlind = {
     CP_Rotation: SpinalNodeRef | undefined;
     storeINFO: InfoStore[];
 };
+export type PositionsDataStore2={
+    position: SpinalNodeRef;
+    CP: SpinalNodeRef | undefined;
+    CP_Rotation: SpinalNodeRef | undefined;
+    CP2: SpinalNodeRef | undefined;
+    CP_Rotation2: SpinalNodeRef | undefined;
+    storeINFO: InfoStore[];
+    doubleControl : boolean;
+
+}
 export type PositionsDataStore={
     position: SpinalNodeRef;
     CP: SpinalNodeRef | undefined;
     CP_Rotation: SpinalNodeRef | undefined;
     storeINFO: InfoStore[];
+    doubleControl : boolean;
 }
 export type InfoStore={
     bso: SpinalNodeRef;
     posBsoEndpoint: SpinalNodeRef;
     posLamelleEndpoint: SpinalNodeRef;
+    xupdateEndpoint: SpinalNodeRef;
+}
+export type InfoStore2={
+    bso: SpinalNodeRef;
+    bsoNumber: number | null;
+    posBsoEndpoint: SpinalNodeRef;
+    posLamelleEndpoint: SpinalNodeRef;
+    xupdateEndpoint: SpinalNodeRef;
 }
 export type PositionTempData={
     position: SpinalNodeRef;
