@@ -505,9 +505,9 @@ export class Utils {
                         const storeWithLowestBsoNumber = this.getStoreWithLowestBsoNumber(storeINFO);
                         if (storeWithLowestBsoNumber) {
                             await this.updateEndpointValue(storeWithLowestBsoNumber.xupdateEndpoint, "1");
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay1_update_store? process.env.delay1_update_store : "5000")));
                             await this.updateEndpointValue(storeWithLowestBsoNumber.posBsoEndpoint, endpValue);
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay2_update_store? process.env.delay2_update_store : "5000")));
                             await this.updateEndpointValue(storeWithLowestBsoNumber.xupdateEndpoint, "0");
 
                         }
@@ -535,9 +535,9 @@ export class Utils {
                         const storeWithHighestBsoNumber = this.getStoreWithHighestBsoNumber(storeINFO);
                         if (storeWithHighestBsoNumber) {
                             await this.updateEndpointValue(storeWithHighestBsoNumber.xupdateEndpoint, "1");
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay1_update_store? process.env.delay1_update_store : "5000")));
                             await this.updateEndpointValue(storeWithHighestBsoNumber.posBsoEndpoint, endpValue);
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay2_update_store? process.env.delay2_update_store : "5000")));
                             await this.updateEndpointValue(storeWithHighestBsoNumber.xupdateEndpoint, "0");
                         }
                     
@@ -568,9 +568,9 @@ export class Utils {
                     for (const info of storeINFO) {
                         const endpValue = (await controlPoint.element.load()).currentValue.get();
                         await this.updateEndpointValue(info.xupdateEndpoint, "1");
-                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay1_update_store? process.env.delay1_update_store : "5000")));
                         await this.updateEndpointValue(info.posBsoEndpoint, endpValue);
-                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay2_update_store? process.env.delay2_update_store : "5000")));
                         await this.updateEndpointValue(info.xupdateEndpoint, "0");
                     }
                 });
@@ -600,9 +600,9 @@ export class Utils {
                         const storeWithLowestBsoNumber = this.getStoreWithLowestBsoNumber(storeINFO);
                         if (storeWithLowestBsoNumber) {
                             await this.updateEndpointValue(storeWithLowestBsoNumber.xupdateEndpoint, "1");
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay1_update_store? process.env.delay1_update_store : "5000")));
                             await this.updateEndpointValue(storeWithLowestBsoNumber.posLamelleEndpoint, endpValue);
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay2_update_store? process.env.delay2_update_store : "5000")));
                             await this.updateEndpointValue(storeWithLowestBsoNumber.xupdateEndpoint, "0");
                         }
 
@@ -632,9 +632,9 @@ export class Utils {
                         const storeWithHighestBsoNumber = this.getStoreWithHighestBsoNumber(storeINFO);
                         if (storeWithHighestBsoNumber) {
                             await this.updateEndpointValue(storeWithHighestBsoNumber.xupdateEndpoint, "1");
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay1_update_store? process.env.delay1_update_store : "5000")));
                             await this.updateEndpointValue(storeWithHighestBsoNumber.posLamelleEndpoint, endpValue);
-                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                            await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay2_update_store? process.env.delay2_update_store : "5000")));
                             await this.updateEndpointValue(storeWithHighestBsoNumber.xupdateEndpoint, "0");
                         }
                     
@@ -663,9 +663,9 @@ export class Utils {
                     for (const info of storeINFO) {
                         const endpValue = (await controlRotationPoint.element.load()).currentValue.get();
                         await this.updateEndpointValue(info.xupdateEndpoint, "1");
-                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay1_update_store? process.env.delay1_update_store : "5000")));
                         await this.updateEndpointValue(info.posLamelleEndpoint, endpValue);
-                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay_update_store? process.env.delay_update_store : "5000")));
+                        await new Promise(resolve => setTimeout(resolve,parseInt(process.env.delay2_update_store? process.env.delay2_update_store : "5000")));
                         await this.updateEndpointValue(info.xupdateEndpoint, "0");
                     }
                 });

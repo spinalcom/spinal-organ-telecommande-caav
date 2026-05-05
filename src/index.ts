@@ -242,7 +242,7 @@ class SpinalMain {
         
       
 
-        console.log("done binding store control");
+        console.log("done binding Blind control");
 
     }
     public async TempControl(Positions: SpinalNodeRef[]) {
