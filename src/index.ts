@@ -150,7 +150,7 @@ class SpinalMain {
         const storeList = await Promise.all(promeses2);
         await utils.BindBlindControlPointForRoom(storeList);
         await utils.BindBlindRotationControlPointForRoom(storeList);
-
+       
         console.log("done binding blind  control for rooms");
 
     }

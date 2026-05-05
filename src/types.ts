@@ -22,6 +22,7 @@ export type RoomDataBlind = {
     CP_Rotation: SpinalNodeRef | undefined;
     storeINFO: InfoStore[];
 };
+
 export type PositionsDataStore2={
     position: SpinalNodeRef;
     CP: SpinalNodeRef | undefined;

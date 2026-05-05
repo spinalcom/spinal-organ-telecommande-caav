@@ -486,7 +486,7 @@ export class Utils {
         endpointNode.info.directModificationDate.set(Date.now());
     }
 
-    public async BindStoresControlPoint(posList: PositionsDataStore[]) {
+    public async BindStoresControlPoint(posList: PositionsDataStore[] |PositionsDataStore2[]) {
 
         for (const item of posList) {
             const { position, CP: controlPoint, CP_Rotation: controlRotationPoint, storeINFO } = item;
@@ -580,7 +580,7 @@ export class Utils {
 
     }
 
-    public async BindStoresRotationControlPoint(posList: PositionsDataStore[]) {
+    public async BindStoresRotationControlPoint(posList: PositionsDataStore[]|PositionsDataStore2[]) {
 
         for (const item of posList) {
             const { position, CP : controlPoint, CP_Rotation: controlRotationPoint, storeINFO } = item;
